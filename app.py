@@ -9,7 +9,7 @@ from scipy.stats import gmean
 st.set_page_config(page_title="QCF Titer Dashboard 2026", layout="wide")
 st.title("📊 QCF Titer & Serum Monitoring Dashboard (Professional Version)")
 
-# 💡 แก้ไขชื่อไฟล์ฐานข้อมูลหลักตามที่กำหนดเรียบร้อยแล้ว
+# ชื่อไฟล์ฐานข้อมูลหลัก
 DB_EXCEL_PATH = "QCF Titer Data.xlsx"
 
 if not os.path.exists(DB_EXCEL_PATH):
@@ -37,8 +37,6 @@ if upload_action == "1. เพิ่มข้อมูลต่อท้าย (
     if uploaded_file is not None:
         try:
             new_data = pd.read_excel(uploaded_file, sheet_name=data_type)
-            
-            # ตรวจสอบโครงสร้างคอลัมน์ (Data Validation)
             required_cols = REQUIRED_ELISA_COLS if data_type == "ELISA Data" else REQUIRED_HI_COLS
             missing_cols = [col for col in required_cols if col not in new_data.columns]
             
@@ -117,7 +115,7 @@ def hi_gmt_log2(series):
 tab1, tab2 = st.tabs(["🧪 ELISA Data Analysis", "🩸 HI Data Analysis"])
 
 # ==========================================
-# TAB 1: ELISA DATA ANALYSIS (แก้ไขปัญหา STD ไม่ขึ้นตาม Week)
+# TAB 1: ELISA DATA ANALYSIS (แก้ไขแบบอัจฉริยะตามรูปแนบ)
 # ==========================================
 with tab1:
     st.header("สรุปผลการตรวจภูมิคุ้มกันด้วยวิธี ELISA")
@@ -125,20 +123,20 @@ with tab1:
     if elisa_raw.empty:
         st.info("ยังไม่มีข้อมูลสถิติในชีต 'ELISA Data'")
     else:
-        # 1. ทำความสะอาดข้อมูลเบื้องต้นให้กับข้อมูลดิบทั้งหมดก่อนแยกตาราง
+        # 1. ทำความสะอาดข้อมูลเบื้องต้น
         elisa_raw['Age_Clean'] = elisa_raw['Age (Wk)'].apply(clean_age)
         elisa_raw['titer'] = pd.to_numeric(elisa_raw['titer'], errors='coerce')
         elisa_raw['GMT'] = pd.to_numeric(elisa_raw['GMT'], errors='coerce')
         elisa_raw['Year'] = elisa_raw['Year'].astype(str).str.replace('.0', '', regex=False)
 
-        # 2. แยกข้อมูลฟาร์มจริง VS เกณฑ์มาตรฐาน (STD) ออกจากกันเด็ดขาด
+        # 2. แยกข้อมูลจริงออกจากเกณฑ์อ้างอิง (STD)
         is_std = elisa_raw['farm_name'].astype(str).str.strip().str.upper().str.contains('STD|STANDARD', na=False) | \
                  elisa_raw['House'].astype(str).str.strip().str.upper().str.contains('STD|STANDARD', na=False)
         
         elisa_actual = elisa_raw[~is_std]
         elisa_std_data = elisa_raw[is_std]
 
-        # 3. ตัวกรองข้อมูลบนหน้าเว็บ (Dynamic Filters) คิดเฉพาะจากฝั่งข้อมูลฟาร์มจริง
+        # 3. สร้าง Dynamic Filters สำหรับฝั่งข้อมูลฟาร์มจริง
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             years = st.multiselect("เลือกปี (Year - ELISA)", options=sorted(elisa_actual["Year"].dropna().unique()), default=sorted(elisa_actual["Year"].dropna().unique()))
@@ -146,14 +144,13 @@ with tab1:
             filtered_by_year = elisa_actual[elisa_actual["Year"].isin(years)]
             farms = st.multiselect("เลือกฟาร์ม (ELISA)", options=sorted(filtered_by_year["farm_name"].dropna().unique()), default=sorted(filtered_by_year["farm_name"].dropna().unique())[:1])
         with col3:
-            # ดึงรายชื่อชุดทดสอบทั้งหมดที่มีในไฟล์ เพื่อให้เลือกแมตช์ได้ทั้งข้อมูลจริงและ STD
             kits = st.multiselect("เลือกชุดทดสอบ (Test Kit)", options=sorted(elisa_raw["elisa_test_kit"].dropna().unique()), default=sorted(elisa_raw["elisa_test_kit"].dropna().unique())[:1])
         with col4:
             filtered_by_farm = filtered_by_year[filtered_by_year["farm_name"].isin(farms)]
             available_houses = sorted(filtered_by_farm["House"].dropna().unique())
             houses = st.multiselect("เลือกโรงเรือน (House)", options=available_houses, default=available_houses)
 
-        # 4. กรองข้อมูลจริงตามเงื่อนไขฟิลเตอร์ (ปี, ฟาร์ม, ชุดตรวจ, โรงเรือน)
+        # 4. กรองข้อมูลฟาร์มจริงตามฟิลเตอร์
         f_elisa_actual = elisa_actual[
             (elisa_actual["Year"].isin(years)) &
             (elisa_actual["farm_name"].isin(farms)) & 
@@ -162,7 +159,7 @@ with tab1:
         ].copy()
 
         if not f_elisa_actual.empty:
-            # ส่วนแสดงค่า KPI ทางสัตวแพทย์ (คำนวณจากข้อมูลฟาร์มจริงเท่านั้น)
+            # ส่วนคำนวณ KPI
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("จำนวนตัวอย่างจริง", f"{len(f_elisa_actual)} ตัวอย่าง")
             
@@ -178,47 +175,52 @@ with tab1:
                 pos_rate = (pos_count / len(f_elisa_actual)) * 100
                 kpi4.metric("เปอร์เซ็นต์ผลบวก (% Positive)", f"{pos_rate:.1f}%")
 
-            # --- 5. จัดเตรียมโครงสร้างสำหรับสร้างกราฟเส้น ---
-            st.subheader("📈 ELISA Titer Profile (Geometric Mean) แยกตามฟาร์ม-โรงเรือน และเกณฑ์มาตรฐาน")
+            # --- 5. พัฒนาระบบคำนวณค่าช่วงโค้ง STD ตามอายุ (Standard Curve Mapping) ---
+            st.subheader("📈 ELISA Titer Profile แยกตามฟาร์ม-โรงเรือน และเกณฑ์มาตรฐาน")
             
             f_elisa_actual['Legend_Name'] = f_elisa_actual['farm_name'].astype(str) + " (" + f_elisa_actual['House'].astype(str) + ")"
             chart_df = f_elisa_actual.groupby(['Age_Clean', 'Legend_Name'])['titer'].apply(elisa_gmt).unstack()
             chart_df['[Mean] Overall GMT'] = f_elisa_actual.groupby('Age_Clean')['titer'].apply(elisa_gmt)
 
-            # 💡 จุดแก้ไขสำคัญ: กรองตาราง STD โดยอิงเฉพาะชุดตรวจ (Test Kit) เท่านั้น ไม่โดนฟิลเตอร์ "ปี" หรือ "ฟาร์ม" มาตัดทิ้ง
+            # กรองตาราง STD เฉพาะชุดตรวจที่ผู้ใช้เลือก
             f_elisa_std = elisa_std_data[elisa_std_data["elisa_test_kit"].astype(str).str.strip().isin([k.strip() for k in kits])].copy()
             
             if not f_elisa_std.empty:
-                # เลือกใช้ค่าจากคอลัมน์ GMT หากคอลัมน์ titer ในแถว STD มีค่าว่างเปล่า
                 f_elisa_std['final_std_val'] = f_elisa_std['GMT'].combine_first(f_elisa_std['titer'])
+                std_base = f_elisa_std.groupby(['Age_Clean', 'House'])['final_std_val'].mean().unstack()
                 
-                # กรุ๊ปข้อมูลหาค่าเฉลี่ยตาม Age_Clean (สัปดาห์อายุ) เพื่อเอาไป map ลงแกน X ของกราฟ
-                std_lines = f_elisa_std.groupby(['Age_Clean', 'House'])['final_std_val'].mean().unstack()
+                # 💡 เคล็ดลับดึงตามช่วงอายุ: ขยายช่วงแกน X (Index) ให้คลุมเลขอายุทั้งหมดตั้งแต่จุดต่ำสุดถึงสูงสุด เพื่อทำ Linear Interpolation
+                min_age = int(min(chart_df.index.min(), std_base.index.min()))
+                max_age = int(max(chart_df.index.max(), std_base.index.max()))
+                full_age_index = pd.Index(range(min_age, max_age + 1), name='Age_Clean')
                 
-                for col in std_lines.columns:
-                    chart_df[f"[Standard] {col}"] = std_lines[col]
+                # นำข้อมูล STD มาคำนวณเฉลี่ยเชื่อมเส้นตรงในทุกๆ สัปดาห์อายุแบบลากโค้งเอียงตามอายุจริง
+                std_full = std_base.reindex(full_age_index).interpolate(method='linear').ffill().bfill()
+                
+                # ดึงเอาเฉพาะค่าสัปดาห์ที่มีข้อมูลตัดผ่านเข้าสู่ตารางกราฟหลัก
+                chart_df = chart_df.reindex(chart_df.index.union(std_base.index)).sort_index()
+                for col in std_full.columns:
+                    chart_df[f"[Standard] {col}"] = std_full[col]
 
-            # เรียงลำดับแกน X (เลขอายุสัปดาห์) จากน้อยไปมาก
+            # เรียงลำดับแกนเลขอายุให้เรียบร้อย
             chart_df = chart_df.sort_index()
-            
-            # ลากเส้น Standard เชื่อมทุกช่วงอายุให้ยาวต่อเนื่องตลอดทั้งกราฟ
+
+            # สำหรับเส้นฟาร์มจริงทำการลากเส้นประหากมีช่องว่างบางช่วงอายุ
             for col in chart_df.columns:
                 if "[Standard]" in col:
-                    chart_df[col] = chart_df[col].ffill().bfill()
+                    chart_df[col] = chart_df[col].interpolate(method='linear').ffill().bfill()
 
-            # 6. พล็อตกราฟด้วย Plotly
+            # 6. พล็อตกราฟผ่านโครงสร้าง Plotly
             fig = go.Figure()
             for col in chart_df.columns:
                 if "[Standard]" in col:
-                    # เส้น Standard วิ่งตามสัปดาห์อายุ เป็นเส้นประสีส้มเด่นชัด
+                    # เส้นเกณฑ์มาตรฐานเปลี่ยนค่าตามวีค (แบบหักมุมขึ้นตามเกณฑ์สัตวแพทย์)
                     fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
-                                             line=dict(dash='dash', color='#ff7f0e', width=2.5), mode='lines'))
+                                             line=dict(dash='dash', color='#ff7f0e', width=3), mode='lines+markers'))
                 elif "[Mean]" in col:
-                    # เส้นเฉลี่ยรวมกลุ่มฟาร์มจริง เป็นเส้นทึบสีดำหนา
                     fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
                                              line=dict(color='black', width=4), mode='lines'))
                 else:
-                    # เส้นฟาร์มจริงรายโรงเรือน เป็นเส้นทึบปกติพร้อมจุด Marker ข้อมูลตามสัปดาห์อายุ
                     fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
                                              mode='lines+markers', line=dict(width=2.5)))
             
@@ -246,20 +248,17 @@ with tab2:
     if hi_raw.empty:
         st.info("ยังไม่มีข้อมูลสถิติในชีต 'HI Data'")
     else:
-        # เตรียมข้อมูลเบื้องต้น
         hi_raw['Age_Clean'] = hi_raw['Age (Wk)'].apply(clean_age)
         hi_raw['GMT'] = pd.to_numeric(hi_raw['GMT'], errors='coerce')
         hi_raw['CV'] = pd.to_numeric(hi_raw['CV'], errors='coerce')
         hi_raw['Year'] = hi_raw['Year'].astype(str).str.replace('.0', '', regex=False)
 
-        # แยกข้อมูลฟาร์มจริง VS ค่ามาตรฐานออกจากกัน
         is_std_hi = hi_raw['farm_name'].astype(str).str.contains('STD|Standard', case=False, na=False) | \
                     hi_raw['House'].astype(str).str.contains('STD|Standard', case=False, na=False)
         
         hi_actual = hi_raw[~is_std_hi]
         hi_std_data = hi_raw[is_std_hi]
 
-        # ตัวกรองข้อมูลแบบสอดคล้องกัน (Dynamic Filters)
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             years_hi = st.multiselect("เลือกปี (Year - HI)", options=sorted(hi_actual["Year"].dropna().unique()), default=sorted(hi_actual["Year"].dropna().unique()))
@@ -273,7 +272,6 @@ with tab2:
             available_houses_hi = sorted(filtered_by_farm_hi["House"].dropna().unique())
             houses_hi = st.multiselect("เลือกโรงเรือน (House - HI)", options=available_houses_hi, default=available_houses_hi)
 
-        # กรองข้อมูลจริงตามเงื่อนไข
         f_hi_actual = hi_actual[
             (hi_actual["Year"].isin(years_hi)) &
             (hi_actual["farm_name"].isin(farms_hi)) & 
@@ -282,7 +280,6 @@ with tab2:
         ].copy()
 
         if not f_hi_actual.empty:
-            # ส่วนคำนวณสถิติภาพรวมของหน้า HI (คิดจากฐานความเจือจาง Log2)
             hkpi1, hkpi2, hkpi3 = st.columns(3)
             hkpi1.metric("จำนวนบันทึกจริง", f"{len(f_hi_actual)} รายการ")
 
@@ -292,40 +289,40 @@ with tab2:
             avg_cv = f_hi_actual["CV"].mean()
             hkpi3.metric("ค่าเฉลี่ย %CV ของฝูง", f"{avg_cv:.2f}%" if avg_cv > 0 else "0.00%")
 
-            # --- ส่วนการสร้างกราฟเส้นระบบ HI (Standard ลากยาวต่อเนื่อง) ---
             st.subheader("📈 HI Titer Profile (Log2 GMT) แยกตามฟาร์ม-โรงเรือน และเกณฑ์มาตรฐาน")
             
             f_hi_actual['Legend_Name'] = f_hi_actual['farm_name'].astype(str) + " (" + f_hi_actual['House'].astype(str) + ")"
             chart_hi_df = f_hi_actual.groupby(['Age_Clean', 'Legend_Name'])['GMT'].apply(hi_gmt_log2).unstack()
             chart_hi_df['[Mean] Overall GMT'] = f_hi_actual.groupby('Age_Clean')['GMT'].apply(hi_gmt_log2)
 
-            # ดึงค่าเกณฑ์มาตรฐานระดับโรคฝูงสัตว์ปีกเข้ามาพล็อต
             f_hi_std = hi_std_data[hi_std_data["disease_name"].isin(diseases)]
             if not f_hi_std.empty:
                 std_lines_hi = f_hi_std.groupby(['Age_Clean', 'House'])['GMT'].mean().unstack()
-                for col in std_lines_hi.columns:
-                    chart_hi_df[f"[Standard] {col}"] = std_lines_hi[col]
+                
+                # ประยุกต์ใช้ Linear Interpolation ให้กับฝั่ง HI ด้วยเช่นกันเพื่อให้ขยับตามวีคอย่างสวยงาม
+                m_age = int(min(chart_hi_df.index.min(), std_lines_hi.index.min()))
+                x_age = int(max(chart_hi_df.index.max(), std_lines_hi.index.max()))
+                f_index = pd.Index(range(m_age, x_age + 1), name='Age_Clean')
+                std_hi_interp = std_lines_hi.reindex(f_index).interpolate(method='linear').ffill().bfill()
+                
+                chart_hi_df = chart_hi_df.reindex(chart_hi_df.index.union(std_lines_hi.index)).sort_index()
+                for col in std_hi_interp.columns:
+                    chart_hi_df[f"[Standard] {col}"] = std_hi_interp[col]
 
-            # เรียงลำดับแกนเลขอายุ
             chart_hi_df = chart_hi_df.sort_index()
-            
-            # ลากเส้น Standard ของฝั่ง HI ยาวต่อเนื่องตลอดทั้งกราฟ
             for col in chart_hi_df.columns:
                 if "[Standard]" in col:
-                    chart_hi_df[col] = chart_hi_df[col].ffill().bfill()
+                    chart_hi_df[col] = chart_hi_df[col].interpolate(method='linear').ffill().bfill()
 
             fig_hi = go.Figure()
             for col in chart_hi_df.columns:
                 if "[Standard]" in col:
-                    # เส้น Standard เป็นเส้นประลากยาวขนานสีส้ม
                     fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, 
-                                                line=dict(dash='dash', color='#ff7f0e', width=2), mode='lines'))
+                                                line=dict(dash='dash', color='#ff7f0e', width=3), mode='lines+markers'))
                 elif "[Mean]" in col:
-                    # เส้นค่าเฉลี่ยรวมระดับฝูงจริงทั้งหมด เป็นเส้นสีดำทึบหนาพิเศษ
                     fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, 
                                                 line=dict(color='black', width=4), mode='lines'))
                 else:
-                    # เส้นฟาร์มจริงรายโรงเรือน เป็นเส้นสีทึบปกติพร้อมจุด Marker ไล่ดูง่าย
                     fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, 
                                                 mode='lines+markers', line=dict(width=2.5)))
             
