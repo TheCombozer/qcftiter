@@ -117,7 +117,7 @@ def hi_gmt_log2(series):
 tab1, tab2 = st.tabs(["🧪 ELISA Data Analysis", "🩸 HI Data Analysis"])
 
 # ==========================================
-# TAB 1: ELISA DATA ANALYSIS
+# TAB 1: ELISA DATA ANALYSIS (แก้ไขตัวกรอง STD)
 # ==========================================
 with tab1:
     st.header("สรุปผลการตรวจภูมิคุ้มกันด้วยวิธี ELISA")
@@ -130,9 +130,9 @@ with tab1:
         elisa_raw['titer'] = pd.to_numeric(elisa_raw['titer'], errors='coerce')
         elisa_raw['Year'] = elisa_raw['Year'].astype(str).str.replace('.0', '', regex=False)
 
-        # แยกข้อมูลฟาร์มจริง VS เกณฑ์มาตรฐาน (STD) ออกจากกันเด็ดขาดในการคำนวณ
-        is_std = elisa_raw['farm_name'].astype(str).str.contains('STD|Standard', case=False, na=False) | \
-                 elisa_raw['House'].astype(str).str.contains('STD|Standard', case=False, na=False)
+        # 💡 ปรับปรุงการแยกข้อมูลจริง VS เกณฑ์มาตรฐาน (STD) ให้แม่นยำและครอบคลุมขึ้น
+        is_std = elisa_raw['farm_name'].astype(str).str.strip().str.upper().str.contains('STD|STANDARD', na=False) | \
+                 elisa_raw['House'].astype(str).str.strip().str.upper().str.contains('STD|STANDARD', na=False)
         
         elisa_actual = elisa_raw[~is_std]
         elisa_std_data = elisa_raw[is_std]
@@ -145,6 +145,7 @@ with tab1:
             filtered_by_year = elisa_actual[elisa_actual["Year"].isin(years)]
             farms = st.multiselect("เลือกฟาร์ม (ELISA)", options=sorted(filtered_by_year["farm_name"].dropna().unique()), default=sorted(filtered_by_year["farm_name"].dropna().unique())[:1])
         with col3:
+            # ดึงรายชื่อชุดทดสอบจากข้อมูลทั้งหมดเพื่อให้แมตช์กันทั้งข้อมูลจริงและ STD
             kits = st.multiselect("เลือกชุดทดสอบ (Test Kit)", options=sorted(elisa_raw["elisa_test_kit"].dropna().unique()), default=sorted(elisa_raw["elisa_test_kit"].dropna().unique())[:1])
         with col4:
             filtered_by_farm = filtered_by_year[filtered_by_year["farm_name"].isin(farms)]
@@ -160,7 +161,7 @@ with tab1:
         ].copy()
 
         if not f_elisa_actual.empty:
-            # ส่วนแสดงค่า KPI ทางสัตวแพทย์ (ปลอดภัยจากค่า STD)
+            # ส่วนแสดงค่า KPI ทางสัตวแพทย์
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("จำนวนตัวอย่างจริง", f"{len(f_elisa_actual)} ตัวอย่าง")
             
@@ -176,15 +177,16 @@ with tab1:
                 pos_rate = (pos_count / len(f_elisa_actual)) * 100
                 kpi4.metric("เปอร์เซ็นต์ผลบวก (% Positive)", f"{pos_rate:.1f}%")
 
-            # --- ส่วนการสร้างกราฟเส้นระบบ ELISA (Standard ลากยาวต่อเนื่อง) ---
+            # --- ส่วนการสร้างกราฟเส้นระบบ ELISA ---
             st.subheader("📈 ELISA Titer Profile (Geometric Mean) แยกตามฟาร์ม-โรงเรือน และเกณฑ์มาตรฐาน")
             
             f_elisa_actual['Legend_Name'] = f_elisa_actual['farm_name'].astype(str) + " (" + f_elisa_actual['House'].astype(str) + ")"
             chart_df = f_elisa_actual.groupby(['Age_Clean', 'Legend_Name'])['titer'].apply(elisa_gmt).unstack()
             chart_df['[Mean] Overall GMT'] = f_elisa_actual.groupby('Age_Clean')['titer'].apply(elisa_gmt)
 
-            # ดึงค่าเกณฑ์อ้างอิงมาตรฐานมาใส่เข้าคู่แกน X
-            f_elisa_std = elisa_std_data[elisa_std_data["elisa_test_kit"].isin(kits)]
+            # 💡 ปรับการดึงค่าเกณฑ์อ้างอิงมาตรฐานให้กรองชื่อชุดทดสอบแบบยืดหยุ่นขึ้น (Case-Insensitive)
+            f_elisa_std = elisa_std_data[elisa_std_data["elisa_test_kit"].astype(str).str.strip().isin([k.strip() for k in kits])]
+            
             if not f_elisa_std.empty:
                 std_lines = f_elisa_std.groupby(['Age_Clean', 'House'])['titer'].mean().unstack()
                 for col in std_lines.columns:
