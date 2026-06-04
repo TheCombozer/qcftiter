@@ -9,7 +9,8 @@ from scipy.stats import gmean
 st.set_page_config(page_title="QCF Titer Dashboard 2026", layout="wide")
 st.title("📊 QCF Titer & Serum Monitoring Dashboard (Professional Version)")
 
-DB_EXCEL_PATH = "QCF Titer Data.xlsx"
+# กำหนดชื่อไฟล์ฐานข้อมูล (ปรับให้ตรงกับชื่อไฟล์จริงใน GitHub ของคุณ เช่น QCF Titer Dashboard 2026.xlsx)
+DB_EXCEL_PATH = "QCF Titer Dashboard 2026.xlsx"
 
 if not os.path.exists(DB_EXCEL_PATH):
     st.error(f"❌ ไม่พบไฟล์ฐานข้อมูลหลัก '{DB_EXCEL_PATH}' ในระบบ กรุณาตรวจสอบว่ามีไฟล์นี้อยู่ใน GitHub Repository หรือยัง")
@@ -44,7 +45,7 @@ if upload_action == "1. เพิ่มข้อมูลต่อท้าย (
             if missing_cols:
                 st.sidebar.error(f"❌ โครงสร้างไฟล์ไม่ถูกต้อง! ขาดคอลัมน์: {', '.join(missing_cols)}")
             else:
-                st.sidebar.success(f"📋 ตรวจสอบผ่าน! พบข้อมูลที่พร้อมอัปโหลดทั้งหมด {len(new_data)} แถ")
+                st.sidebar.success(f"📋 ตรวจสอบผ่าน! พบข้อมูลที่พร้อมอัปโหลดทั้งหมด {len(new_data)} แถว")
 
                 if st.sidebar.button("💾 บันทึกเพิ่มต่อท้ายเข้าฐานข้อมูลหลัก"):
                     excel_file = pd.ExcelFile(DB_EXCEL_PATH)
@@ -66,7 +67,7 @@ if upload_action == "1. เพิ่มข้อมูลต่อท้าย (
 else:
     st.sidebar.markdown("---")
     st.sidebar.warning("⚠️ การทำ Overwrite จะแทนที่ไฟล์เดิมทั้งหมด")
-    new_db_file = st.sidebar.file_uploader("อัปโหลดไฟล์ 'QCF Titer Data.xlsx' ตัวใหม่เข้าสู่ระบบ", type=["xlsx"])
+    new_db_file = st.sidebar.file_uploader(f"อัปโหลดไฟล์ '{DB_EXCEL_PATH}' ตัวใหม่เข้าสู่ระบบ", type=["xlsx"])
     if new_db_file is not None:
         if st.sidebar.button("🚨 ยืนยันการบันทึกทับฐานข้อมูลเดิม"):
             try:
@@ -89,6 +90,7 @@ except Exception as e:
     st.error(f"เกิดข้อผิดพลาดในการโหลดไฟล์ฐานข้อมูลหลัก: {e}")
     st.stop()
 
+# ฟังก์ชันทำความสะอาดข้อมูลเลขอายุสัปดาห์
 def clean_age(val):
     if pd.isna(val): return np.nan
     val_str = str(val).replace('สัปดาห์', '').replace('Wk', '').strip()
@@ -97,19 +99,18 @@ def clean_age(val):
     except:
         return val_str
 
-# ฟังก์ชันคำนวณ Geometric Mean Titer (GMT) สำหรับ ELISA (Log10)
+# ฟังก์ชันคำนวณ Geometric Mean Titer (GMT) สำหรับ ELISA (Log10 Based)
 def elisa_gmt(series):
     valid = series.dropna()
     valid = valid[valid > 0]
     if len(valid) == 0: return 0
     return gmean(valid)
 
-# ฟังก์ชันคำนวณ Geometric Mean Titer สำหรับ HI (Log2)
+# ฟังก์ชันคำนวณ Geometric Mean Titer สำหรับ HI (Log2 Based)
 def hi_gmt_log2(series):
     valid = series.dropna()
     valid = valid[valid > 0]
     if len(valid) == 0: return 0
-    # แปลงเป็นค่า Log2 หาค่าเฉลี่ยเลขคณิต แล้วค่อยแปลงกลับเป็น Antilog (ฐาน 2)
     log2_vals = np.log2(valid)
     return 2 ** log2_vals.mean()
 
@@ -129,14 +130,14 @@ with tab1:
         elisa_raw['titer'] = pd.to_numeric(elisa_raw['titer'], errors='coerce')
         elisa_raw['Year'] = elisa_raw['Year'].astype(str).str.replace('.0', '', regex=False)
 
-        # แยกข้อมูลฟาร์มจริง VS เกณฑ์มาตรฐาน (STD)
+        # แยกข้อมูลฟาร์มจริง VS เกณฑ์มาตรฐาน (STD)ออกจากกันเด็ดขาดในการคำนวณ
         is_std = elisa_raw['farm_name'].astype(str).str.contains('STD|Standard', case=False, na=False) | \
                  elisa_raw['House'].astype(str).str.contains('STD|Standard', case=False, na=False)
         
         elisa_actual = elisa_raw[~is_std]
         elisa_std_data = elisa_raw[is_std]
 
-        # ตัวกรองข้อมูล (Filters)
+        # ตัวกรองข้อมูลแบบสอดคล้องกัน (Dynamic Filters)
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             years = st.multiselect("เลือกปี (Year - ELISA)", options=sorted(elisa_actual["Year"].dropna().unique()), default=sorted(elisa_actual["Year"].dropna().unique()))
@@ -159,14 +160,13 @@ with tab1:
         ].copy()
 
         if not f_elisa_actual.empty:
-            # คำนวณ KPI โดยใช้ Geometric Mean Titer
+            # ส่วนแสดงค่า KPI ทางสัตวแพทย์ (ปลอดภัยจากค่า STD)
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("จำนวนตัวอย่างจริง", f"{len(f_elisa_actual)} ตัวอย่าง")
             
             gmt_val = elisa_gmt(f_elisa_actual['titer'])
             kpi2.metric("ค่าเฉลี่ยภูมิคุ้มกัน (GMT)", f"{gmt_val:.2f}" if gmt_val > 0 else "0.00")
             
-            # คำนวณ %CV รวมกลุ่ม
             mean_arithmetic = f_elisa_actual['titer'].mean()
             cv_val = (f_elisa_actual['titer'].std() / mean_arithmetic * 100) if mean_arithmetic > 0 else 0
             kpi3.metric("ค่า %CV รวมกลุ่ม", f"{cv_val:.2f}%" if cv_val > 0 else "0.00%")
@@ -176,35 +176,49 @@ with tab1:
                 pos_rate = (pos_count / len(f_elisa_actual)) * 100
                 kpi4.metric("เปอร์เซ็นต์ผลบวก (% Positive)", f"{pos_rate:.1f}%")
 
-            # --- สร้างกราฟเส้นด้วย Plotly ---
+            # --- ส่วนการสร้างกราฟเส้นระบบ ELISA (Standard ลากยาวต่อเนื่อง) ---
             st.subheader("📈 ELISA Titer Profile (Geometric Mean) แยกตามฟาร์ม-โรงเรือน และเกณฑ์มาตรฐาน")
             
             f_elisa_actual['Legend_Name'] = f_elisa_actual['farm_name'].astype(str) + " (" + f_elisa_actual['House'].astype(str) + ")"
             chart_df = f_elisa_actual.groupby(['Age_Clean', 'Legend_Name'])['titer'].apply(elisa_gmt).unstack()
             chart_df['[Mean] Overall GMT'] = f_elisa_actual.groupby('Age_Clean')['titer'].apply(elisa_gmt)
 
+            # ดึงค่าเกณฑ์อ้างอิงมาตรฐานมาใส่เข้าคู่แกน X
             f_elisa_std = elisa_std_data[elisa_std_data["elisa_test_kit"].isin(kits)]
             if not f_elisa_std.empty:
                 std_lines = f_elisa_std.groupby(['Age_Clean', 'House'])['titer'].mean().unstack()
                 for col in std_lines.columns:
                     chart_df[f"[Standard] {col}"] = std_lines[col]
 
+            # เรียงลำดับแกนเลขอายุจากน้อยไปมาก
             chart_df = chart_df.sort_index()
+            
+            # 💡 หัวใจสำคัญ: ลากเส้น Standard ยาวต่อเนื่องด้วย Forward Fill และ Backward Fill
+            for col in chart_df.columns:
+                if "[Standard]" in col:
+                    chart_df[col] = chart_df[col].ffill().bfill()
 
-            # สร้างองค์ประกอบกราฟ Plotly
+            # พล็อตกราฟด้วยโครงสร้างเส้นแบบสากลของ Plotly
             fig = go.Figure()
             for col in chart_df.columns:
                 if "[Standard]" in col:
-                    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, line=dict(dash='dash', color='orange', width=1.5)))
+                    # เส้น Standard เป็นเส้นประ (Dashed) ลากยาวสีส้มอ้างอิงชัดเจน
+                    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
+                                             line=dict(dash='dash', color='#ff7f0e', width=2), mode='lines'))
                 elif "[Mean]" in col:
-                    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, line=dict(color='black', width=4)))
+                    # เส้นเฉลี่ยรวมกลุ่มจริง เป็นเส้นทึบหนาสีดำเด่นชัด
+                    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
+                                             line=dict(color='black', width=4), mode='lines'))
                 else:
-                    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, mode='lines+markers', line=dict(width=2)))
+                    # เส้นฟาร์ม (โรงเรือน) จริง เป็นเส้นทึบปกติพร้อมจุด Marker แสดงข้อมูล
+                    fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
+                                             mode='lines+markers', line=dict(width=2.5)))
             
-            fig.update_layout(xaxis_title="อายุ (สัปดาห์ - Age in Weeks)", yaxis_title="Geometric Mean Titer", hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig.update_layout(xaxis_title="อายุ (สัปดาห์ - Age in Weeks)", yaxis_title="Geometric Mean Titer (ELISA)", 
+                              hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig, use_container_width=True)
 
-            # ตารางสรุปรายสัปดาห์
+            # ตารางวิเคราะห์แสดง %CV รายช่วงอายุเพื่อให้ตรวจความสม่ำเสมอวัคซีนได้ถูกต้อง
             st.subheader("📋 ตารางวิเคราะห์ข้อมูลแยกตามรายอายุสัปดาห์ (%CV รายสัปดาห์)")
             summary_table = f_elisa_actual.groupby(['Year', 'farm_name', 'House', 'Age (Wk)']).agg(
                 จำนวนตัวอย่าง=('titer', 'count'),
@@ -230,14 +244,14 @@ with tab2:
         hi_raw['CV'] = pd.to_numeric(hi_raw['CV'], errors='coerce')
         hi_raw['Year'] = hi_raw['Year'].astype(str).str.replace('.0', '', regex=False)
 
-        # แยกข้อมูลฟาร์มจริง VS ค่ามาตรฐาน
+        # แยกข้อมูลฟาร์มจริง VS ค่ามาตรฐานออกจากกัน
         is_std_hi = hi_raw['farm_name'].astype(str).str.contains('STD|Standard', case=False, na=False) | \
                     hi_raw['House'].astype(str).str.contains('STD|Standard', case=False, na=False)
         
         hi_actual = hi_raw[~is_std_hi]
         hi_std_data = hi_raw[is_std_hi]
 
-        # ตัวกรองข้อมูล (Filters)
+        # ตัวกรองข้อมูลแบบสอดคล้องกัน (Dynamic Filters)
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             years_hi = st.multiselect("เลือกปี (Year - HI)", options=sorted(hi_actual["Year"].dropna().unique()), default=sorted(hi_actual["Year"].dropna().unique()))
@@ -260,7 +274,7 @@ with tab2:
         ].copy()
 
         if not f_hi_actual.empty:
-            # ส่วนคำนวณ KPI ของ HI โดยใช้สูตร Log2 GMT
+            # ส่วนคำนวณสถิติภาพรวมของหน้า HI (คิดจากฐานความเจือจาง Log2)
             hkpi1, hkpi2, hkpi3 = st.columns(3)
             hkpi1.metric("จำนวนบันทึกจริง", f"{len(f_hi_actual)} รายการ")
 
@@ -270,31 +284,45 @@ with tab2:
             avg_cv = f_hi_actual["CV"].mean()
             hkpi3.metric("ค่าเฉลี่ย %CV ของฝูง", f"{avg_cv:.2f}%" if avg_cv > 0 else "0.00%")
 
-            # --- สร้างกราฟเส้น HI ด้วย Plotly ---
+            # --- ส่วนการสร้างกราฟเส้นระบบ HI (Standard ลากยาวต่อเนื่อง) ---
             st.subheader("📈 HI Titer Profile (Log2 GMT) แยกตามฟาร์ม-โรงเรือน และเกณฑ์มาตรฐาน")
             
             f_hi_actual['Legend_Name'] = f_hi_actual['farm_name'].astype(str) + " (" + f_hi_actual['House'].astype(str) + ")"
             chart_hi_df = f_hi_actual.groupby(['Age_Clean', 'Legend_Name'])['GMT'].apply(hi_gmt_log2).unstack()
             chart_hi_df['[Mean] Overall GMT'] = f_hi_actual.groupby('Age_Clean')['GMT'].apply(hi_gmt_log2)
 
+            # ดึงค่าเกณฑ์มาตรฐานระดับโรคฝูงสัตว์ปีกเข้ามาพล็อต
             f_hi_std = hi_std_data[hi_std_data["disease_name"].isin(diseases)]
             if not f_hi_std.empty:
                 std_lines_hi = f_hi_std.groupby(['Age_Clean', 'House'])['GMT'].mean().unstack()
                 for col in std_lines_hi.columns:
                     chart_hi_df[f"[Standard] {col}"] = std_lines_hi[col]
 
+            # เรียงลำดับแกนเลขอายุ
             chart_hi_df = chart_hi_df.sort_index()
+            
+            # 💡 หัวใจสำคัญ: ลากเส้น Standard ของฝั่ง HI ยาวต่อเนื่องตลอดทั้งกราฟ
+            for col in chart_hi_df.columns:
+                if "[Standard]" in col:
+                    chart_hi_df[col] = chart_hi_df[col].ffill().bfill()
 
             fig_hi = go.Figure()
             for col in chart_hi_df.columns:
                 if "[Standard]" in col:
-                    fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, line=dict(dash='dash', color='orange', width=1.5)))
+                    # เส้น Standard ทวิโรคฝูง เป็นเส้นประลากยาวขนานสีส้ม
+                    fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, 
+                                                line=dict(dash='dash', color='#ff7f0e', width=2), mode='lines'))
                 elif "[Mean]" in col:
-                    fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, line=dict(color='black', width=4)))
+                    # เส้นค่าเฉลี่ยรวมระดับฝูงจริงทั้งหมด เป็นเส้นสีดำทึบหนาพิเศษ
+                    fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, 
+                                                line=dict(color='black', width=4), mode='lines'))
                 else:
-                    fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, mode='lines+markers', line=dict(width=2)))
+                    # เส้นฟาร์มจริงรายโรงเรือน เป็นเส้นสีทึบปกติพร้อมจุด Marker ไล่ดูง่าย
+                    fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, 
+                                                mode='lines+markers', line=dict(width=2.5)))
             
-            fig_hi.update_layout(xaxis_title="อายุ (สัปดาห์ - Age in Weeks)", yaxis_title="Haemagglutination Inhibition GMT (Log2)", hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_hi.update_layout(xaxis_title="อายุ (สัปดาห์ - Age in Weeks)", yaxis_title="Haemagglutination Inhibition GMT (Log2)", 
+                                 hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_hi, use_container_width=True)
 
             st.subheader("📋 ข้อมูลการทดสอบ HI จำแนกตามรายรุ่นและช่วงอายุ")
