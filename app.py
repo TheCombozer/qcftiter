@@ -9,8 +9,8 @@ from scipy.stats import gmean
 st.set_page_config(page_title="QCF Titer Dashboard 2026", layout="wide")
 st.title("📊 QCF Titer & Serum Monitoring Dashboard (Professional Version)")
 
-# กำหนดชื่อไฟล์ฐานข้อมูล (ปรับให้ตรงกับชื่อไฟล์จริงใน GitHub ของคุณ เช่น QCF Titer Dashboard 2026.xlsx)
-DB_EXCEL_PATH = "QCF Titer Dashboard 2026.xlsx"
+# 💡 แก้ไขชื่อไฟล์ฐานข้อมูลหลักตามที่กำหนดเรียบร้อยแล้ว
+DB_EXCEL_PATH = "QCF Titer Data.xlsx"
 
 if not os.path.exists(DB_EXCEL_PATH):
     st.error(f"❌ ไม่พบไฟล์ฐานข้อมูลหลัก '{DB_EXCEL_PATH}' ในระบบ กรุณาตรวจสอบว่ามีไฟล์นี้อยู่ใน GitHub Repository หรือยัง")
@@ -130,7 +130,7 @@ with tab1:
         elisa_raw['titer'] = pd.to_numeric(elisa_raw['titer'], errors='coerce')
         elisa_raw['Year'] = elisa_raw['Year'].astype(str).str.replace('.0', '', regex=False)
 
-        # แยกข้อมูลฟาร์มจริง VS เกณฑ์มาตรฐาน (STD)ออกจากกันเด็ดขาดในการคำนวณ
+        # แยกข้อมูลฟาร์มจริง VS เกณฑ์มาตรฐาน (STD) ออกจากกันเด็ดขาดในการคำนวณ
         is_std = elisa_raw['farm_name'].astype(str).str.contains('STD|Standard', case=False, na=False) | \
                  elisa_raw['House'].astype(str).str.contains('STD|Standard', case=False, na=False)
         
@@ -193,7 +193,7 @@ with tab1:
             # เรียงลำดับแกนเลขอายุจากน้อยไปมาก
             chart_df = chart_df.sort_index()
             
-            # 💡 หัวใจสำคัญ: ลากเส้น Standard ยาวต่อเนื่องด้วย Forward Fill และ Backward Fill
+            # ลากเส้น Standard ยาวต่อเนื่องด้วย Forward Fill และ Backward Fill
             for col in chart_df.columns:
                 if "[Standard]" in col:
                     chart_df[col] = chart_df[col].ffill().bfill()
@@ -301,7 +301,7 @@ with tab2:
             # เรียงลำดับแกนเลขอายุ
             chart_hi_df = chart_hi_df.sort_index()
             
-            # 💡 หัวใจสำคัญ: ลากเส้น Standard ของฝั่ง HI ยาวต่อเนื่องตลอดทั้งกราฟ
+            # ลากเส้น Standard ของฝั่ง HI ยาวต่อเนื่องตลอดทั้งกราฟ
             for col in chart_hi_df.columns:
                 if "[Standard]" in col:
                     chart_hi_df[col] = chart_hi_df[col].ffill().bfill()
@@ -309,7 +309,7 @@ with tab2:
             fig_hi = go.Figure()
             for col in chart_hi_df.columns:
                 if "[Standard]" in col:
-                    # เส้น Standard ทวิโรคฝูง เป็นเส้นประลากยาวขนานสีส้ม
+                    # เส้น Standard เป็นเส้นประลากยาวขนานสีส้ม
                     fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, 
                                                 line=dict(dash='dash', color='#ff7f0e', width=2), mode='lines'))
                 elif "[Mean]" in col:
