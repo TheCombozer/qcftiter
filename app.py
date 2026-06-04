@@ -88,7 +88,7 @@ except Exception as e:
     st.error(f"เกิดข้อผิดพลาดในการโหลดไฟล์ฐานข้อมูลหลัก: {e}")
     st.stop()
 
-# ฟังก์ชันทำความสะอาดข้อมูลเลขอายุสัปดาห์
+# ฟังก์ชันทำความสะอาดข้อมูลเลอายุสัปดาห์
 def clean_age(val):
     if pd.isna(val): return np.nan
     val_str = str(val).replace('สัปดาห์', '').replace('Wk', '').strip()
@@ -115,7 +115,7 @@ def hi_gmt_log2(series):
 tab1, tab2 = st.tabs(["🧪 ELISA Data Analysis", "🩸 HI Data Analysis"])
 
 # ==========================================
-# TAB 1: ELISA DATA ANALYSIS (แก้ไขแบบอัจฉริยะตามรูปแนบ)
+# TAB 1: ELISA DATA ANALYSIS
 # ==========================================
 with tab1:
     st.header("สรุปผลการตรวจภูมิคุ้มกันด้วยวิธี ELISA")
@@ -175,7 +175,7 @@ with tab1:
                 pos_rate = (pos_count / len(f_elisa_actual)) * 100
                 kpi4.metric("เปอร์เซ็นต์ผลบวก (% Positive)", f"{pos_rate:.1f}%")
 
-            # --- 5. พัฒนาระบบคำนวณค่าช่วงโค้ง STD ตามอายุ (Standard Curve Mapping) ---
+            # --- 5. ระบบคำนวณค่าช่วงโค้ง STD ตามอายุ (Standard Curve Mapping) ---
             st.subheader("📈 ELISA Titer Profile แยกตามฟาร์ม-โรงเรือน และเกณฑ์มาตรฐาน")
             
             f_elisa_actual['Legend_Name'] = f_elisa_actual['farm_name'].astype(str) + " (" + f_elisa_actual['House'].astype(str) + ")"
@@ -189,15 +189,14 @@ with tab1:
                 f_elisa_std['final_std_val'] = f_elisa_std['GMT'].combine_first(f_elisa_std['titer'])
                 std_base = f_elisa_std.groupby(['Age_Clean', 'House'])['final_std_val'].mean().unstack()
                 
-                # 💡 เคล็ดลับดึงตามช่วงอายุ: ขยายช่วงแกน X (Index) ให้คลุมเลขอายุทั้งหมดตั้งแต่จุดต่ำสุดถึงสูงสุด เพื่อทำ Linear Interpolation
+                # ขยายช่วงแกน X (Index) เพื่อทำ Linear Interpolation เฉพาะสำหรับเกณฑ์ STD
                 min_age = int(min(chart_df.index.min(), std_base.index.min()))
                 max_age = int(max(chart_df.index.max(), std_base.index.max()))
                 full_age_index = pd.Index(range(min_age, max_age + 1), name='Age_Clean')
                 
-                # นำข้อมูล STD มาคำนวณเฉลี่ยเชื่อมเส้นตรงในทุกๆ สัปดาห์อายุแบบลากโค้งเอียงตามอายุจริง
                 std_full = std_base.reindex(full_age_index).interpolate(method='linear').ffill().bfill()
                 
-                # ดึงเอาเฉพาะค่าสัปดาห์ที่มีข้อมูลตัดผ่านเข้าสู่ตารางกราฟหลัก
+                # รวม Index เพื่อให้กราฟมีจุดพล็อตของทั้งข้อมูลจริงและ STD
                 chart_df = chart_df.reindex(chart_df.index.union(std_base.index)).sort_index()
                 for col in std_full.columns:
                     chart_df[f"[Standard] {col}"] = std_full[col]
@@ -205,12 +204,12 @@ with tab1:
             # เรียงลำดับแกนเลขอายุให้เรียบร้อย
             chart_df = chart_df.sort_index()
 
-            # สำหรับเส้นฟาร์มจริงทำการลากเส้นประหากมีช่องว่างบางช่วงอายุ
+            # สำหรับเส้น Standard เติมเต็มช่องว่างที่หักโค้งให้สมบูรณ์
             for col in chart_df.columns:
                 if "[Standard]" in col:
                     chart_df[col] = chart_df[col].interpolate(method='linear').ffill().bfill()
 
-            # 6. พล็อตกราฟผ่านโครงสร้าง Plotly
+            # 6. พล็อตกราฟผ่านโครงสร้าง Plotly (💡 แก้ไขปัญหาเส้นขาดโดยเพิ่ม connectgaps=True)
             fig = go.Figure()
             for col in chart_df.columns:
                 if "[Standard]" in col:
@@ -218,11 +217,15 @@ with tab1:
                     fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
                                              line=dict(dash='dash', color='#ff7f0e', width=3), mode='lines+markers'))
                 elif "[Mean]" in col:
+                    # เส้นเฉลี่ยรวมกลุ่มฟาร์มจริง - ลากเชื่อมต่อกันอย่างสวยงามไม่แหว่งขาดตอน
                     fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
-                                             line=dict(color='black', width=4), mode='lines'))
+                                             line=dict(color='black', width=4), mode='lines',
+                                             connectgaps=True))
                 else:
+                    # เส้นฟาร์มจริงรายโรงเรือน - ลากเชื่อมต่อกันอย่างสวยงามไม่แหว่งขาดตอนเช่นกัน
                     fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
-                                             mode='lines+markers', line=dict(width=2.5)))
+                                             mode='lines+markers', line=dict(width=2.5),
+                                             connectgaps=True))
             
             fig.update_layout(xaxis_title="อายุ (สัปดาห์ - Age in Weeks)", yaxis_title="Geometric Mean Titer (ELISA)", 
                               hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
@@ -299,7 +302,6 @@ with tab2:
             if not f_hi_std.empty:
                 std_lines_hi = f_hi_std.groupby(['Age_Clean', 'House'])['GMT'].mean().unstack()
                 
-                # ประยุกต์ใช้ Linear Interpolation ให้กับฝั่ง HI ด้วยเช่นกันเพื่อให้ขยับตามวีคอย่างสวยงาม
                 m_age = int(min(chart_hi_df.index.min(), std_lines_hi.index.min()))
                 x_age = int(max(chart_hi_df.index.max(), std_lines_hi.index.max()))
                 f_index = pd.Index(range(m_age, x_age + 1), name='Age_Clean')
@@ -314,6 +316,7 @@ with tab2:
                 if "[Standard]" in col:
                     chart_hi_df[col] = chart_hi_df[col].interpolate(method='linear').ffill().bfill()
 
+            # พล็อตกราฟฝั่ง HI (💡 แก้ไขปัญหาเส้นขาดโดยเพิ่ม connectgaps=True)
             fig_hi = go.Figure()
             for col in chart_hi_df.columns:
                 if "[Standard]" in col:
@@ -321,10 +324,12 @@ with tab2:
                                                 line=dict(dash='dash', color='#ff7f0e', width=3), mode='lines+markers'))
                 elif "[Mean]" in col:
                     fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, 
-                                                line=dict(color='black', width=4), mode='lines'))
+                                                line=dict(color='black', width=4), mode='lines',
+                                                connectgaps=True))
                 else:
                     fig_hi.add_trace(go.Scatter(x=chart_hi_df.index, y=chart_hi_df[col], name=col, 
-                                                mode='lines+markers', line=dict(width=2.5)))
+                                                mode='lines+markers', line=dict(width=2.5),
+                                                connectgaps=True))
             
             fig_hi.update_layout(xaxis_title="อายุ (สัปดาห์ - Age in Weeks)", yaxis_title="Haemagglutination Inhibition GMT (Log2)", 
                                  hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
