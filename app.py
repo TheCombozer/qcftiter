@@ -117,7 +117,7 @@ def hi_gmt_log2(series):
 tab1, tab2 = st.tabs(["🧪 ELISA Data Analysis", "🩸 HI Data Analysis"])
 
 # ==========================================
-# TAB 1: ELISA DATA ANALYSIS (แก้ไขตัวกรอง STD)
+# TAB 1: ELISA DATA ANALYSIS (แก้ไขปัญหา STD ไม่ขึ้นตาม Week)
 # ==========================================
 with tab1:
     st.header("สรุปผลการตรวจภูมิคุ้มกันด้วยวิธี ELISA")
@@ -125,19 +125,20 @@ with tab1:
     if elisa_raw.empty:
         st.info("ยังไม่มีข้อมูลสถิติในชีต 'ELISA Data'")
     else:
-        # เตรียมข้อมูลเบื้องต้น
+        # 1. ทำความสะอาดข้อมูลเบื้องต้นให้กับข้อมูลดิบทั้งหมดก่อนแยกตาราง
         elisa_raw['Age_Clean'] = elisa_raw['Age (Wk)'].apply(clean_age)
         elisa_raw['titer'] = pd.to_numeric(elisa_raw['titer'], errors='coerce')
+        elisa_raw['GMT'] = pd.to_numeric(elisa_raw['GMT'], errors='coerce')
         elisa_raw['Year'] = elisa_raw['Year'].astype(str).str.replace('.0', '', regex=False)
 
-        # 💡 ปรับปรุงการแยกข้อมูลจริง VS เกณฑ์มาตรฐาน (STD) ให้แม่นยำและครอบคลุมขึ้น
+        # 2. แยกข้อมูลฟาร์มจริง VS เกณฑ์มาตรฐาน (STD) ออกจากกันเด็ดขาด
         is_std = elisa_raw['farm_name'].astype(str).str.strip().str.upper().str.contains('STD|STANDARD', na=False) | \
                  elisa_raw['House'].astype(str).str.strip().str.upper().str.contains('STD|STANDARD', na=False)
         
         elisa_actual = elisa_raw[~is_std]
         elisa_std_data = elisa_raw[is_std]
 
-        # ตัวกรองข้อมูลแบบสอดคล้องกัน (Dynamic Filters)
+        # 3. ตัวกรองข้อมูลบนหน้าเว็บ (Dynamic Filters) คิดเฉพาะจากฝั่งข้อมูลฟาร์มจริง
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             years = st.multiselect("เลือกปี (Year - ELISA)", options=sorted(elisa_actual["Year"].dropna().unique()), default=sorted(elisa_actual["Year"].dropna().unique()))
@@ -145,14 +146,14 @@ with tab1:
             filtered_by_year = elisa_actual[elisa_actual["Year"].isin(years)]
             farms = st.multiselect("เลือกฟาร์ม (ELISA)", options=sorted(filtered_by_year["farm_name"].dropna().unique()), default=sorted(filtered_by_year["farm_name"].dropna().unique())[:1])
         with col3:
-            # ดึงรายชื่อชุดทดสอบจากข้อมูลทั้งหมดเพื่อให้แมตช์กันทั้งข้อมูลจริงและ STD
+            # ดึงรายชื่อชุดทดสอบทั้งหมดที่มีในไฟล์ เพื่อให้เลือกแมตช์ได้ทั้งข้อมูลจริงและ STD
             kits = st.multiselect("เลือกชุดทดสอบ (Test Kit)", options=sorted(elisa_raw["elisa_test_kit"].dropna().unique()), default=sorted(elisa_raw["elisa_test_kit"].dropna().unique())[:1])
         with col4:
             filtered_by_farm = filtered_by_year[filtered_by_year["farm_name"].isin(farms)]
             available_houses = sorted(filtered_by_farm["House"].dropna().unique())
             houses = st.multiselect("เลือกโรงเรือน (House)", options=available_houses, default=available_houses)
 
-        # กรองข้อมูลจริงตามเงื่อนไข
+        # 4. กรองข้อมูลจริงตามเงื่อนไขฟิลเตอร์ (ปี, ฟาร์ม, ชุดตรวจ, โรงเรือน)
         f_elisa_actual = elisa_actual[
             (elisa_actual["Year"].isin(years)) &
             (elisa_actual["farm_name"].isin(farms)) & 
@@ -161,7 +162,7 @@ with tab1:
         ].copy()
 
         if not f_elisa_actual.empty:
-            # ส่วนแสดงค่า KPI ทางสัตวแพทย์
+            # ส่วนแสดงค่า KPI ทางสัตวแพทย์ (คำนวณจากข้อมูลฟาร์มจริงเท่านั้น)
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("จำนวนตัวอย่างจริง", f"{len(f_elisa_actual)} ตัวอย่าง")
             
@@ -177,42 +178,47 @@ with tab1:
                 pos_rate = (pos_count / len(f_elisa_actual)) * 100
                 kpi4.metric("เปอร์เซ็นต์ผลบวก (% Positive)", f"{pos_rate:.1f}%")
 
-            # --- ส่วนการสร้างกราฟเส้นระบบ ELISA ---
+            # --- 5. จัดเตรียมโครงสร้างสำหรับสร้างกราฟเส้น ---
             st.subheader("📈 ELISA Titer Profile (Geometric Mean) แยกตามฟาร์ม-โรงเรือน และเกณฑ์มาตรฐาน")
             
             f_elisa_actual['Legend_Name'] = f_elisa_actual['farm_name'].astype(str) + " (" + f_elisa_actual['House'].astype(str) + ")"
             chart_df = f_elisa_actual.groupby(['Age_Clean', 'Legend_Name'])['titer'].apply(elisa_gmt).unstack()
             chart_df['[Mean] Overall GMT'] = f_elisa_actual.groupby('Age_Clean')['titer'].apply(elisa_gmt)
 
-            # 💡 ปรับการดึงค่าเกณฑ์อ้างอิงมาตรฐานให้กรองชื่อชุดทดสอบแบบยืดหยุ่นขึ้น (Case-Insensitive)
-            f_elisa_std = elisa_std_data[elisa_std_data["elisa_test_kit"].astype(str).str.strip().isin([k.strip() for k in kits])]
+            # 💡 จุดแก้ไขสำคัญ: กรองตาราง STD โดยอิงเฉพาะชุดตรวจ (Test Kit) เท่านั้น ไม่โดนฟิลเตอร์ "ปี" หรือ "ฟาร์ม" มาตัดทิ้ง
+            f_elisa_std = elisa_std_data[elisa_std_data["elisa_test_kit"].astype(str).str.strip().isin([k.strip() for k in kits])].copy()
             
             if not f_elisa_std.empty:
-                std_lines = f_elisa_std.groupby(['Age_Clean', 'House'])['titer'].mean().unstack()
+                # เลือกใช้ค่าจากคอลัมน์ GMT หากคอลัมน์ titer ในแถว STD มีค่าว่างเปล่า
+                f_elisa_std['final_std_val'] = f_elisa_std['GMT'].combine_first(f_elisa_std['titer'])
+                
+                # กรุ๊ปข้อมูลหาค่าเฉลี่ยตาม Age_Clean (สัปดาห์อายุ) เพื่อเอาไป map ลงแกน X ของกราฟ
+                std_lines = f_elisa_std.groupby(['Age_Clean', 'House'])['final_std_val'].mean().unstack()
+                
                 for col in std_lines.columns:
                     chart_df[f"[Standard] {col}"] = std_lines[col]
 
-            # เรียงลำดับแกนเลขอายุจากน้อยไปมาก
+            # เรียงลำดับแกน X (เลขอายุสัปดาห์) จากน้อยไปมาก
             chart_df = chart_df.sort_index()
             
-            # ลากเส้น Standard ยาวต่อเนื่องด้วย Forward Fill และ Backward Fill
+            # ลากเส้น Standard เชื่อมทุกช่วงอายุให้ยาวต่อเนื่องตลอดทั้งกราฟ
             for col in chart_df.columns:
                 if "[Standard]" in col:
                     chart_df[col] = chart_df[col].ffill().bfill()
 
-            # พล็อตกราฟด้วยโครงสร้างเส้นแบบสากลของ Plotly
+            # 6. พล็อตกราฟด้วย Plotly
             fig = go.Figure()
             for col in chart_df.columns:
                 if "[Standard]" in col:
-                    # เส้น Standard เป็นเส้นประ (Dashed) ลากยาวสีส้มอ้างอิงชัดเจน
+                    # เส้น Standard วิ่งตามสัปดาห์อายุ เป็นเส้นประสีส้มเด่นชัด
                     fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
-                                             line=dict(dash='dash', color='#ff7f0e', width=2), mode='lines'))
+                                             line=dict(dash='dash', color='#ff7f0e', width=2.5), mode='lines'))
                 elif "[Mean]" in col:
-                    # เส้นเฉลี่ยรวมกลุ่มจริง เป็นเส้นทึบหนาสีดำเด่นชัด
+                    # เส้นเฉลี่ยรวมกลุ่มฟาร์มจริง เป็นเส้นทึบสีดำหนา
                     fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
                                              line=dict(color='black', width=4), mode='lines'))
                 else:
-                    # เส้นฟาร์ม (โรงเรือน) จริง เป็นเส้นทึบปกติพร้อมจุด Marker แสดงข้อมูล
+                    # เส้นฟาร์มจริงรายโรงเรือน เป็นเส้นทึบปกติพร้อมจุด Marker ข้อมูลตามสัปดาห์อายุ
                     fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[col], name=col, 
                                              mode='lines+markers', line=dict(width=2.5)))
             
@@ -220,7 +226,7 @@ with tab1:
                               hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig, use_container_width=True)
 
-            # ตารางวิเคราะห์แสดง %CV รายช่วงอายุเพื่อให้ตรวจความสม่ำเสมอวัคซีนได้ถูกต้อง
+            # ตารางวิเคราะห์แสดง %CV รายช่วงอายุ
             st.subheader("📋 ตารางวิเคราะห์ข้อมูลแยกตามรายอายุสัปดาห์ (%CV รายสัปดาห์)")
             summary_table = f_elisa_actual.groupby(['Year', 'farm_name', 'House', 'Age (Wk)']).agg(
                 จำนวนตัวอย่าง=('titer', 'count'),
